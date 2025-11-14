@@ -1,0 +1,14 @@
+streamlit
+openai>=1.0.0
+pandas
+numpy
+scikit-learn
+nltk
+textblob
+docx2txt
+PyPDF2
+plotly
+firebase-admin
+fpdf
+requests
+python-dotenv
