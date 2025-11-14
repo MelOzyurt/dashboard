@@ -1,22 +1,18 @@
 """
 firebase_auth.py
 
-Basit Firebase Authentication yardımcı fonksiyonları:
-- init_firebase()   : Firebase Admin SDK'yı başlatır (token doğrulama vs. için)
-- sign_up_user()    : Email & password ile yeni kullanıcı oluşturur
-- sign_in_user()    : Email & password ile login yapar
+Firebase Authentication yardımcı fonksiyonları:
+- init_firebase()   : Firebase Admin SDK'yı başlatır (service account ile)
+- sign_up_user()    : Email & password ile yeni kullanıcı oluşturur (REST API)
+- sign_in_user()    : Email & password ile login yapar (REST API)
 
-Gereken secrets (Streamlit Cloud veya .streamlit/secrets.toml içinde):
+Senin Streamlit Cloud secrets formatına göre çalışır:
 
-[firebase]
-type = "service_account"
-project_id = "YOUR_PROJECT_ID"
-private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
-client_email = "firebase-adminsdk-xxx@YOUR_PROJECT_ID.iam.gserviceaccount.com"
-client_id = "1234567890"
-token_uri = "https://oauth2.googleapis.com/token"
+OPENAI_API_KEY = "..."
 
-FIREBASE_API_KEY = "YOUR_WEB_API_KEY"
+FIREBASE_KEY = "{... service account JSON string ...}"
+FIREBASE_WEB_API_KEY = "..."
+
 """
 
 import json
@@ -32,38 +28,83 @@ from firebase_admin import credentials
 def init_firebase():
     """
     Firebase Admin SDK'yı bir kez başlatır.
-    - Service account bilgilerini st.secrets["firebase"] içinden alır.
+    - Service account bilgilerini st.secrets["FIREBASE_KEY"] içindeki JSON'dan alır.
     - Zaten başlatılmışsa tekrar başlatmaz.
     """
+
     if firebase_admin._apps:
         # Zaten başlatılmış
         return
 
-    if "firebase" not in st.secrets:
-        st.warning("⚠️ Firebase config not found in st.secrets['firebase']. Skipping init.")
+    if "FIREBASE_KEY" not in st.secrets:
+        st.warning(
+            "⚠️ FIREBASE_KEY not found in Streamlit secrets. "
+            "Admin SDK init skipped. If you only use email/password auth via REST, this is not critical."
+        )
         return
 
-    firebase_config = dict(st.secrets["firebase"])
+    raw_json = st.secrets["FIREBASE_KEY"]
+
+    # FIREBASE_KEY şu anda uzun bir JSON string şeklinde
+    # onu dict'e parse ediyoruz
+    try:
+        if isinstance(raw_json, str):
+            firebase_config = json.loads(raw_json)
+        else:
+            # Bazı durumlarda secrets direkt dict olabilir
+            firebase_config = dict(raw_json)
+    except Exception as e:
+        st.error(f"Failed to parse FIREBASE_KEY JSON: {e}")
+        return
 
     # private_key içindeki \n kaçışlarını gerçek newline'a çevir
     if "private_key" in firebase_config:
         firebase_config["private_key"] = firebase_config["private_key"].replace("\\n", "\n")
 
-    cred = credentials.Certificate(firebase_config)
-    firebase_admin.initialize_app(cred, {"projectId": firebase_config.get("project_id")})
+    try:
+        cred = credentials.Certificate(firebase_config)
+        firebase_admin.initialize_app(cred, {"projectId": firebase_config.get("project_id")})
+    except Exception as e:
+        st.error(f"Failed to initialize Firebase Admin SDK: {e}")
 
 
 # -----------------------------
-# Yardımcı: REST endpoint'leri
+# Yardımcı: Web API key çekme
 # -----------------------------
 def _get_api_key() -> str:
-    api_key = st.secrets.get("FIREBASE_API_KEY", None)
-    if not api_key:
-        raise RuntimeError(
-            "FIREBASE_API_KEY not found in Streamlit secrets. "
-            "Please set FIREBASE_API_KEY in Streamlit Cloud Secrets."
-        )
-    return api_key
+    """
+    Firebase Web API key'i secrets içinden çeker.
+
+    Senin secrets yapına göre:
+    - Tercihen FIREBASE_WEB_API_KEY kullanıyoruz.
+    - Fallback olarak FIREBASE_API_KEY veya firebase.api_key gibi alternatifleri de deneriz.
+    """
+
+    # 1) Senin kullandığın isim
+    if "FIREBASE_WEB_API_KEY" in st.secrets and st.secrets["FIREBASE_WEB_API_KEY"]:
+        return st.secrets["FIREBASE_WEB_API_KEY"]
+
+    # 2) Alternatif isimler (eski kodla uyumluluk için)
+    if "FIREBASE_API_KEY" in st.secrets and st.secrets["FIREBASE_API_KEY"]:
+        return st.secrets["FIREBASE_API_KEY"]
+
+    if "firebase" in st.secrets:
+        firebase_section = st.secrets["firebase"]
+        if "api_key" in firebase_section and firebase_section["api_key"]:
+            return firebase_section["api_key"]
+
+    # Hâlâ yoksa debug amaçlı mevcut key isimlerini göster
+    available_top = list(st.secrets.keys())
+    firebase_nested = (
+        list(st.secrets["firebase"].keys()) if "firebase" in st.secrets else None
+    )
+
+    raise RuntimeError(
+        "Firebase Web API key not found in Streamlit secrets. "
+        "Expected one of: FIREBASE_WEB_API_KEY, FIREBASE_API_KEY or firebase.api_key.\n"
+        f"Top-level keys: {available_top}, firebase nested: {firebase_nested}.\n"
+        "Please define FIREBASE_WEB_API_KEY=\"...\" in Streamlit Cloud Secrets."
+    )
 
 
 def _extract_error_message(resp_json: dict) -> str:
@@ -105,7 +146,6 @@ def sign_up_user(email: str, password: str):
         data = resp.json()
 
         if resp.status_code == 200:
-            # data içinde idToken, refreshToken vs. var
             return True, "Account created successfully."
         else:
             msg = _extract_error_message(data)
@@ -124,7 +164,7 @@ def sign_in_user(email: str, password: str):
     Returns:
         (success: bool, message: str)
 
-    Not: İstersen buradan idToken vs. de dönecek şekilde genişletebilirsin.
+    İstersen burada idToken vs. de döndürecek şekilde genişletebilirsin.
     """
     if not email or not password:
         return False, "Email and password are required."
@@ -143,8 +183,6 @@ def sign_in_user(email: str, password: str):
         data = resp.json()
 
         if resp.status_code == 200:
-            # Burada token alabilirsin: data["idToken"], data["localId"], ...
-            # Şimdilik sadece başarı mesajı dönüyoruz.
             return True, "Login successful."
         else:
             msg = _extract_error_message(data)
