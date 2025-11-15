@@ -1,82 +1,27 @@
-import streamlit as st
-
-print("dashboard.py started")
-
-# =========================
-#  PAGE / NAVIGATION STATE
-# =========================
-if "page" not in st.session_state:
-    st.session_state.page = "hub"  # "hub", "feedback_app", "other_app", ...
-
-def go_home():
-    st.session_state.page = "hub"
-
-def go_to(page_name: str):
-    st.session_state.page = page_name
-
-
-# =========================
-#  APP 1: CLIENT FEEDBACK ANALYZER
-#  (Senin mevcut app kodun buraya bir fonksiyon içine gelecek)
-# =========================
 def run_client_feedback_analyzer():
-    # (İstersen bu fonksiyonu ayrı bir dosyaya taşıyıp import da edebilirsin.)
+    # (You can still move this function into a separate file if you want.)
 
     print("client feedback app started")
 
-    # --- Sayfa ayarını sadece dashboardtan verelim, burada tekrar verme ---
+    # Page title
     st.title("📊 Client Feedback Analyzer")
 
-    # 🔙 Home'a dönmek için buton
+    # 🔙 Back to Home button
     if st.button("🏠 Back to Home"):
         go_home()
         st.stop()
 
-    # AŞAĞISI: SENİN MEVCUT APP.KODUN (biraz sadeleştirilmiş iskelet)
-    # ---------------------------------------------------------------
+    # ========== FROM HERE ON: YOUR APP WITHOUT LOGIN ==========
+
     import pandas as pd
     import openai
-    from firebase_auth import init_firebase, sign_in_user, sign_up_user
     from utils import preprocess_reviews
     from fpdf import FPDF
 
-    # 1️⃣ Firebase Başlat
-    init_firebase()
-
-    # --- SESSION STATE LOGIN CHECK ---
-    if 'login_successful' not in st.session_state:
-        st.session_state.login_successful = False
-
-    # 3️⃣ Login veya Sign Up Paneli
-    st.sidebar.header("🔐 Authentication")
-    auth_mode = st.sidebar.radio("Select mode", ["Login", "Sign Up"])
-    email = st.sidebar.text_input("Email")
-    password = st.sidebar.text_input("Password", type="password")
-
-    if auth_mode == "Login":
-        if st.sidebar.button("Sign In"):
-            success, msg = sign_in_user(email, password)
-            if success:
-                st.sidebar.success(msg)
-                st.session_state.login_successful = True
-            else:
-                st.sidebar.error(msg)
-    elif auth_mode == "Sign Up":
-        if st.sidebar.button("Create Account"):
-            success, msg = sign_up_user(email, password)
-            if success:
-                st.sidebar.success(msg)
-            else:
-                st.sidebar.error(msg)
-
-    if not st.session_state.login_successful:
-        st.info("Please log in to access the analyzer.")
-        st.stop()
-
-    # 4️⃣ OpenAI Client
+    # OpenAI Client (still using your Streamlit secrets)
     client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-    # 5️⃣ AI İstem fonksiyonu
+    # AI interpretation helper
     def ai_interpretation(prompt):
         try:
             response = client.chat.completions.create(
@@ -87,7 +32,7 @@ def run_client_feedback_analyzer():
                         "content": (
                             "You are a helpful AI assistant that analyzes customer feedback and generates insights. "
                             "Don't use the customer names on your report, just analyse attributes, outcomes as given requirements by code."
-                            "Don't list the reviews like review 1, review 2, user tryinh to understand the similarities commons etc."
+                            "Don't list the reviews like review 1, review 2, user trying to understand the similarities, commons, etc."
                             "The user should know what's wrong with product or services, what's the pain points, what's the repeating problems."
                         ),
                     },
@@ -100,7 +45,7 @@ def run_client_feedback_analyzer():
         except Exception as e:
             return f"**Error during AI interpretation:** {e}"
 
-    # Kelime bazlı düzgün metin kesme fonksiyonu
+    # Simple token-ish limiter
     def truncate_text_by_tokens(text, max_tokens=1500):
         words = text.split()
         truncated = []
@@ -112,7 +57,7 @@ def run_client_feedback_analyzer():
             truncated.append(word)
         return " ".join(truncated)
 
-    # 6️⃣ Kullanıcıdan veri alma — Dosya veya metin
+    # Data input section
     st.subheader("Upload a dataset or paste your customer reviews below")
 
     uploaded_file = st.file_uploader(
@@ -164,7 +109,7 @@ def run_client_feedback_analyzer():
             st.session_state.reviews = []
             st.stop()
 
-    # Eğer dosya yoksa elle giriş
+    # Manual input if no file
     if not st.session_state.reviews:
         st.info("Or paste your customer reviews (one per line) below:")
         raw_text = st.text_area("Paste reviews here", height=200, value="")
@@ -178,13 +123,13 @@ def run_client_feedback_analyzer():
         st.stop()
 
     if st.button("Analyze It"):
-        # 7️⃣ Ön işleme
+        # Preprocess
         reviews_clean_full = preprocess_reviews(
             "\n".join(st.session_state.reviews[:50])
-        )  # 50 yorum ile sınırla
+        )  # limit to 50 reviews
         reviews_clean = truncate_text_by_tokens(reviews_clean_full, max_tokens=1500)
 
-        # 8️⃣ Promptlar
+        # Prompts
         sentiment_prompt = f"""
 Analyze the sentiment of the following customer reviews. Provide an overall summary of positive, negative, and neutral sentiments, and highlight any patterns or anomalies.
 
@@ -201,13 +146,13 @@ Analyze the following customer feedback and provide insights about key themes, p
 
 \"\"\"{reviews_clean}\"\"\""""
 
-        # 9️⃣ AI Analizleri
+        # AI analyses
         with st.spinner("Analyzing customer feedback..."):
             sentiment_result = ai_interpretation(sentiment_prompt)
             swot_result = ai_interpretation(swot_prompt)
             insight_result = ai_interpretation(insight_prompt)
 
-        # 🔟 Sonuçları Göster
+        # Show results
         st.markdown("## 📝 Sentiment Analysis")
         st.write(sentiment_result)
 
@@ -228,7 +173,7 @@ Analyze the following customer feedback and provide insights about key themes, p
             pdf = PDF()
             pdf.add_page()
 
-            # Unicode font (Sunucunda bu path'i ayarlaman gerekebilir)
+            # Unicode font
             pdf.add_font(
                 "DejaVu",
                 "",
@@ -260,65 +205,3 @@ Analyze the following customer feedback and provide insights about key themes, p
             file_name="client_feedback_report.pdf",
             mime="application/pdf",
         )
-
-
-# =========================
-#  DİĞER APP ÖRNEĞİ (place-holder)
-# =========================
-def run_other_app():
-    st.title("📦 Second App (Placeholder)")
-    if st.button("🏠 Back to Home"):
-        go_home()
-        st.stop()
-    st.write("Buraya ikinci mini app'in UI ve mantığı gelecek.")
-
-
-# =========================
-#  HUB (ANA DASHBOARD)
-# =========================
-def run_hub():
-    st.title("🧭 Analytics Hub")
-
-    st.write("Bu hub içinden farklı mini uygulamalara gidebilirsin:")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("📊 Client Feedback Analyzer", use_container_width=True):
-            go_to("feedback_app")
-
-    with col2:
-        if st.button("📦 Second App (coming soon)", use_container_width=True):
-            go_to("other_app")
-
-    with col3:
-        st.button("➕ Add new app... (placeholder)", disabled=True, use_container_width=True)
-
-
-# =========================
-#  MAIN
-# =========================
-def main():
-    # Sayfa config sadece bir kez burada
-    st.set_page_config(page_title="Analytics Hub", layout="wide")
-
-    # Üst navbar / header
-    st.sidebar.title("Navigation")
-    if st.sidebar.button("🏠 Home"):
-        go_home()
-
-    # Aktif sayfayı seç
-    page = st.session_state.page
-
-    if page == "hub":
-        run_hub()
-    elif page == "feedback_app":
-        run_client_feedback_analyzer()
-    elif page == "other_app":
-        run_other_app()
-    else:
-        run_hub()
-
-
-if __name__ == "__main__":
-    main()
