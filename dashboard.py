@@ -1,6 +1,24 @@
-def run_client_feedback_analyzer():
-    # (You can still move this function into a separate file if you want.)
+import streamlit as st
 
+print("dashboard.py started")
+
+# =========================
+#  PAGE / NAVIGATION STATE
+# =========================
+if "page" not in st.session_state:
+    st.session_state.page = "hub"  # "hub", "feedback_app", "other_app", ...
+
+def go_home():
+    st.session_state.page = "hub"
+
+def go_to(page_name: str):
+    st.session_state.page = page_name
+
+
+# =========================
+#  APP 1: CLIENT FEEDBACK ANALYZER (NO LOGIN)
+# =========================
+def run_client_feedback_analyzer():
     print("client feedback app started")
 
     # Page title
@@ -11,14 +29,14 @@ def run_client_feedback_analyzer():
         go_home()
         st.stop()
 
-    # ========== FROM HERE ON: YOUR APP WITHOUT LOGIN ==========
+    # ========== APP WITHOUT LOGIN ==========
 
     import pandas as pd
     import openai
     from utils import preprocess_reviews
     from fpdf import FPDF
 
-    # OpenAI Client (still using your Streamlit secrets)
+    # OpenAI Client (using Streamlit secrets)
     client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
     # AI interpretation helper
@@ -31,9 +49,9 @@ def run_client_feedback_analyzer():
                         "role": "system",
                         "content": (
                             "You are a helpful AI assistant that analyzes customer feedback and generates insights. "
-                            "Don't use the customer names on your report, just analyse attributes, outcomes as given requirements by code."
-                            "Don't list the reviews like review 1, review 2, user trying to understand the similarities, commons, etc."
-                            "The user should know what's wrong with product or services, what's the pain points, what's the repeating problems."
+                            "Don't use the customer names on your report, just analyse attributes, outcomes as given requirements by code. "
+                            "Don't list the reviews like review 1, review 2, the user is trying to understand the similarities and common patterns. "
+                            "The user should know what's wrong with the product or services, what the pain points are, and what the repeating problems are."
                         ),
                     },
                     {"role": "user", "content": prompt},
@@ -45,7 +63,7 @@ def run_client_feedback_analyzer():
         except Exception as e:
             return f"**Error during AI interpretation:** {e}"
 
-    # Simple token-ish limiter
+    # Simple word-based limiter
     def truncate_text_by_tokens(text, max_tokens=1500):
         words = text.split()
         truncated = []
@@ -173,7 +191,7 @@ Analyze the following customer feedback and provide insights about key themes, p
             pdf = PDF()
             pdf.add_page()
 
-            # Unicode font
+            # Unicode font (adjust path if needed on your system)
             pdf.add_font(
                 "DejaVu",
                 "",
@@ -205,3 +223,64 @@ Analyze the following customer feedback and provide insights about key themes, p
             file_name="client_feedback_report.pdf",
             mime="application/pdf",
         )
+
+
+# =========================
+#  OTHER APP (placeholder)
+# =========================
+def run_other_app():
+    st.title("📦 Second App (Placeholder)")
+    if st.button("🏠 Back to Home"):
+        go_home()
+        st.stop()
+    st.write("This is just a placeholder for your second mini app.")
+
+
+# =========================
+#  HUB (MAIN DASHBOARD)
+# =========================
+def run_hub():
+    st.title("🧭 Analytics Hub")
+
+    st.write("From this hub, you can open different mini analytics apps:")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("📊 Client Feedback Analyzer", use_container_width=True):
+            go_to("feedback_app")
+
+    with col2:
+        if st.button("📦 Second App (coming soon)", use_container_width=True):
+            go_to("other_app")
+
+    with col3:
+        st.button("➕ Add new app... (placeholder)", disabled=True, use_container_width=True)
+
+
+# =========================
+#  MAIN
+# =========================
+def main():
+    st.set_page_config(page_title="Analytics Hub", layout="wide")
+
+    # Sidebar nav
+    st.sidebar.title("Navigation")
+    if st.sidebar.button("🏠 Home"):
+        go_home()
+
+    # Decide which page to show
+    page = st.session_state.page
+
+    if page == "hub":
+        run_hub()
+    elif page == "feedback_app":
+        run_client_feedback_analyzer()
+    elif page == "other_app":
+        run_other_app()
+    else:
+        run_hub()
+
+
+if __name__ == "__main__":
+    main()
